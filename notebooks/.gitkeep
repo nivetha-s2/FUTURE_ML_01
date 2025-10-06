@@ -1,1 +1,49 @@
+import pandas as pd
+from prophet import Prophet
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+df = pd.read_csv('/content/walmart.csv')
+df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y')
+
+weekly_sales = df.groupby('Date').agg({
+    'Weekly_Sales': 'sum',
+    'Holiday_Flag': 'max',
+    'Temperature': 'mean',
+    'Fuel_Price': 'mean',
+    'CPI': 'mean',
+    'Unemployment': 'mean'
+}).reset_index()
+
+weekly_sales.rename(columns={'Date': 'ds', 'Weekly_Sales': 'y'}, inplace=True)
+
+train, test = train_test_split(weekly_sales, test_size=0.2, shuffle=False)
+
+model = Prophet(weekly_seasonality=True, yearly_seasonality=True)
+model.add_regressor('Holiday_Flag')
+model.add_regressor('Temperature')
+model.add_regressor('Fuel_Price')
+model.add_regressor('CPI')
+model.add_regressor('Unemployment')
+model.fit(train)
+
+future = model.make_future_dataframe(periods=len(test), freq='W')
+future = future.merge(weekly_sales[['ds', 'Holiday_Flag', 'Temperature', 'Fuel_Price', 'CPI', 'Unemployment']], on='ds', how='left')
+
+
+forecast = model.predict(future)
+
+sns.set_style("whitegrid")
+plt.figure(figsize=(14,7))
+sns.lineplot(x='ds', y='y', data=train, label='Train Sales', color='blue')
+sns.lineplot(x='ds', y='y', data=test, label='Actual Sales', color='green')
+sns.lineplot(x='ds', y='yhat', data=forecast, label='Forecast', color='red')
+plt.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'], color='gray', alpha=0.2)
+plt.xlabel('Date')
+plt.ylabel('Weekly Sales')
+plt.title('Weekly Sales Forecast with Prophet and Regressors')
+plt.legend()
+plt.show()
+
+forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv('weekly_sales_forecast.csv', index=False)
